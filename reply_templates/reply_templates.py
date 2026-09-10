@@ -25,36 +25,32 @@ NAME_TAG_RE = re.compile("|".join(re.escape(k) for k in NAME_TAGS), re.IGNORECAS
 class ReplyTemplates(commands.Cog, name="Reply Templates"):
     def __init__(self, bot):
         self.bot = bot
-        self._old_callbacks = {}
+        self._prev_before_invoke = None
 
     async def cog_load(self):
         await self.bot.wait_until_ready()
-
-        for name in PATCHED_CMDS:
-            cmd = self.bot.get_command(name)
-            if cmd is None or name in self._old_callbacks:
-                continue
-            self._old_callbacks[name] = cmd.callback
-            cmd.callback = self._patch(cmd.callback)
+        # chain onto whatever before_invoke hook (if any) is already set,
+        # instead of just stomping on it
+        self._prev_before_invoke = self.bot._before_invoke
+        self.bot.before_invoke(self._before_invoke)
 
     def cog_unload(self):
-        for name, cb in self._old_callbacks.items():
-            cmd = self.bot.get_command(name)
-            if cmd is not None:
-                cmd.callback = cb
-        self._old_callbacks = {}
+        self.bot._before_invoke = self._prev_before_invoke
 
-    def _patch(self, old_callback):
-        async def new_callback(cog, ctx, *, msg=""):
-            msg = self.fill_tags(msg)
-            msg = self.fill_names(msg, ctx.author)
-            return await old_callback(cog, ctx, msg=msg)
+    async def _before_invoke(self, ctx):
+        if self._prev_before_invoke is not None:
+            await discord.utils.maybe_coroutine(self._prev_before_invoke, ctx)
 
-        return new_callback
+        if ctx.command is None or ctx.command.qualified_name not in PATCHED_CMDS:
+            return
+        if "msg" not in ctx.kwargs:
+            return
+
+        msg = self.fill_tags(ctx.kwargs["msg"])
+        msg = self.fill_names(msg, ctx.author)
+        ctx.kwargs["msg"] = msg
 
     def get_snippet(self, name):
-        # go through modmail's own snippet aliasing if it exists, otherwise
-        # just look it up directly in bot.snippets
         resolve = getattr(self.bot, "_resolve_snippet", None)
         if resolve is not None:
             resolved = resolve(name)
@@ -70,7 +66,6 @@ class ReplyTemplates(commands.Cog, name="Reply Templates"):
                 return m.group(0)
             if "{input}" in content:
                 return content.replace("{input}", m.group("body"))
-            # no placeholder in the snippet, just tack the wrapped text on
             return f"{content}{m.group('body')}"
 
         return TAG_RE.sub(sub, text)
