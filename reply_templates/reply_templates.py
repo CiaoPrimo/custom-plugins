@@ -22,11 +22,11 @@ NAME_TAGS = {
 NAME_TAG_RE = re.compile("|".join(re.escape(k) for k in NAME_TAGS), re.IGNORECASE)
 
 DEFAULT_GREETING = (
-    "Hello there, thank you for contacting Nova Support.\n\n"
+    "Hello there, thank you for contacting Delivr Support.\n\n"
     "> I am **{input}**, and I am a support member who will be assisting "
     "you throughout the process.\n"
     "> \n"
-    "> :Info: Is there anything I can help you with?"
+    "> Is there anything I can help you with?"
 )
 
 
