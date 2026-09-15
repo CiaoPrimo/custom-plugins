@@ -119,9 +119,41 @@ class SupportSurvey(commands.Cog, name="Support Survey"):
         if recipient is None:
             return
 
-        self.bot.loop.create_task(self.run_survey(recipient, closer))
+        log_channel = await self.get_log_channel()
+        log_message = await self.find_log_message(log_channel, recipient) if log_channel else None
 
-    async def run_survey(self, recipient, closer):
+        self.bot.loop.create_task(self.run_survey(recipient, closer, log_channel, log_message))
+
+    async def find_log_message(self, channel, recipient, attempts: int = 3):
+        needles = (str(recipient.id), recipient.name, str(recipient))
+
+        for attempt in range(attempts):
+            try:
+                async for msg in channel.history(limit=20):
+                    if msg.author.id != self.bot.user.id or not msg.embeds:
+                        continue
+                    embed = msg.embeds[0]
+                    haystack = " ".join(
+                        str(part)
+                        for part in (
+                            embed.title,
+                            embed.description,
+                            getattr(embed.author, "name", None),
+                            getattr(embed.footer, "text", None),
+                        )
+                        if part
+                    )
+                    if any(needle in haystack for needle in needles):
+                        return msg
+            except discord.HTTPException:
+                return None
+
+            if attempt < attempts - 1:
+                await asyncio.sleep(1.5)
+
+        return None
+
+    async def run_survey(self, recipient, closer, log_channel, log_message):
         view = SurveyView()
         embed = discord.Embed(
             title="How was your support experience?",
@@ -143,13 +175,9 @@ class SupportSurvey(commands.Cog, name="Support Survey"):
         except discord.HTTPException:
             pass
 
-        await self.post_result(recipient, closer, view.result)
+        await self.post_result(recipient, closer, view.result, log_channel, log_message)
 
-    async def post_result(self, recipient, closer, result):
-        channel = await self.get_log_channel()
-        if channel is None:
-            return
-
+    async def post_result(self, recipient, closer, result, log_channel, log_message):
         rating = result["rating"]
         reason = result["reason"]
 
@@ -164,7 +192,16 @@ class SupportSurvey(commands.Cog, name="Support Survey"):
 
         embed = discord.Embed(title="Support Survey Result", description=desc, color=color)
         embed.set_footer(text=f"Thread closed by {closer}")
-        await channel.send(embed=embed)
+
+        if log_message is not None:
+            try:
+                await log_message.edit(embeds=log_message.embeds + [embed])
+                return
+            except discord.HTTPException:
+                pass
+
+        if log_channel is not None:
+            await log_channel.send(embed=embed)
 
     async def get_log_channel(self):
         channel = getattr(self.bot, "log_channel", None)
@@ -200,5 +237,7 @@ class SupportSurvey(commands.Cog, name="Support Survey"):
         await ctx.send(embed=discord.Embed(color=self.bot.main_color, description="Surveys disabled."))
 
 
+async def setup(bot):
+    await bot.add_cog(SupportSurvey(bot))
 async def setup(bot):
     await bot.add_cog(SupportSurvey(bot))
