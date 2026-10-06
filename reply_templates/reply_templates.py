@@ -12,12 +12,14 @@ PATCHED_CMDS = ("reply", "freply", "fareply", "areply", "preply")
 # {tag}text{tag} or {tag}text{tag2} or {tag}text{/tag}
 TAG_RE = re.compile(r"\{(?P<name>[a-zA-Z0-9_]+)\}(?P<body>.*?)\{/?(?P=name)2?\}", re.DOTALL)
 
+# each lambda takes (author, channel)
 NAME_TAGS = {
-    "!USERNAME!": lambda a: a.name,
-    "!DISPLAYNAME!": lambda a: a.display_name,
-    "!MENTION!": lambda a: a.mention,
-    "!TAG!": lambda a: str(a),
-    "!ID!": lambda a: str(a.id),
+    "!USERNAME!": lambda a, c: a.name,
+    "!DISPLAYNAME!": lambda a, c: a.display_name,
+    "!MENTION!": lambda a, c: a.mention,
+    "!TAG!": lambda a, c: str(a),
+    "!ID!": lambda a, c: str(a.id),
+    "!CHANNEL!": lambda a, c: c.name,
 }
 NAME_TAG_RE = re.compile("|".join(re.escape(k) for k in NAME_TAGS), re.IGNORECASE)
 
@@ -47,7 +49,7 @@ class ReplyTemplates(commands.Cog, name="Reply Templates"):
             return
 
         msg = self.fill_tags(ctx.kwargs["msg"])
-        msg = self.fill_names(msg, ctx.author)
+        msg = self.fill_names(msg, ctx.author, ctx.channel)
         ctx.kwargs["msg"] = msg
 
     def get_snippet(self, name):
@@ -70,8 +72,10 @@ class ReplyTemplates(commands.Cog, name="Reply Templates"):
 
         return TAG_RE.sub(sub, text)
 
-    def fill_names(self, text, author):
-        return NAME_TAG_RE.sub(lambda m: NAME_TAGS[m.group(0).upper()](author), text)
+    def fill_names(self, text, author, channel):
+        return NAME_TAG_RE.sub(
+            lambda m: NAME_TAGS[m.group(0).upper()](author, channel), text
+        )
 
     @commands.command(name="tagpreview")
     @checks.has_permissions(PermissionLevel.SUPPORTER)
@@ -83,7 +87,7 @@ class ReplyTemplates(commands.Cog, name="Reply Templates"):
                 embed=discord.Embed(color=self.bot.error_color, description=f"No snippet `{name}`.")
             )
         rendered = content.replace("{input}", sample) if "{input}" in content else f"{content}{sample}"
-        rendered = self.fill_names(rendered, ctx.author)
+        rendered = self.fill_names(rendered, ctx.author, ctx.channel)
         await ctx.send(
             embed=discord.Embed(title=f"preview: {name}", color=self.bot.main_color, description=rendered)
         )
@@ -97,7 +101,8 @@ class ReplyTemplates(commands.Cog, name="Reply Templates"):
                 color=self.bot.main_color,
                 description=(
                     "Usable in reply/areply/freply/fareply/preply:\n\n"
-                    "`!USERNAME!`, `!DISPLAYNAME!`, `!MENTION!`, `!TAG!`, `!ID!`\n\n"
+                    "`!USERNAME!`, `!DISPLAYNAME!`, `!MENTION!`, `!TAG!`, `!ID!`, `!CHANNEL!`\n\n"
+                    "`!CHANNEL!` is the name of the current channel (the ticket ID).\n\n"
                     "Snippet tags: `{name}text{name2}` pulls from an existing "
                     "`?snippet` of that name. If the snippet's text contains "
                     "`{input}`, your wrapped text is dropped in there - "
